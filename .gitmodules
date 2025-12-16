@@ -1,0 +1,6 @@
+[submodule "people"]
+	path = people
+	url = git@github.com:eneas-almeida/people.git
+[submodule "api"]
+	path = api
+	url = git@github.com:eneas-almeida/api.git
