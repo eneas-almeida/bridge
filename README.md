@@ -659,3 +659,9 @@ Ambos os serviços são construídos com Spring Boot e suportam:
 - [Spring WebFlux](https://docs.spring.io/spring-framework/reference/web/webflux.html)
 - [Project Reactor](https://projectreactor.io/docs)
 - [JSONPlaceholder API](https://jsonplaceholder.typicode.com/)
+
+<hr />
+
+<div>
+  <sub>Conteúdo criado por <a href="https://github.com/eneas-almeida">Enéas Almeida</a></sub>
+</div>
