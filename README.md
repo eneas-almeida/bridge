@@ -35,18 +35,27 @@ O projeto **Bridge** é uma arquitetura de microserviços composta por dois serv
 - **Java 21**
 - **Spring Boot 3.3.3**
 - **Spring WebFlux** (Programação Reativa)
-- **gRPC 1.58.0**
-- **Protocol Buffers 3.24.3**
 - **Project Reactor** (Mono/Flux)
 - **Lombok**
 - **Maven**
+
+**API Service:**
+- **gRPC 1.58.0**
+- **Protocol Buffers 3.24.3**
+
+**People Service:**
+- **gRPC 1.59.0**
+- **Protocol Buffers 3.24.4**
 
 ### Específicas do API Service
 - **gRPC Client Spring Boot Starter 2.15.0**
 
 ### Específicas do People Service
 - **gRPC Server Spring Boot Starter 2.15.0**
+- **Reactor gRPC 1.2.4** (gRPC Reativo)
 - **MapStruct 1.5.5** (Mapeamento de DTOs)
+- **Logstash Logback Encoder 7.4** (Logging estruturado)
+- **Datadog Trace API 1.30.1** (Observabilidade)
 
 ---
 
@@ -84,7 +93,7 @@ Ambos os serviços seguem os princípios de **Clean Architecture** com separaç�
 
 O contrato de comunicação entre os serviços é definido através de **Protocol Buffers**.
 
-### Arquivo Proto (`service.proto`)
+### Arquivo Proto (`person.proto`)
 
 ```protobuf
 syntax = "proto3";
@@ -95,25 +104,24 @@ option java_outer_classname = "ServiceProto";
 package grpcservice;
 
 service PeopleService {
-  rpc GetPeople (PeopleRequest) returns (PeopleResponse);
-  rpc ListPeople (ListPeopleRequest) returns (ListPeopleResponse);
+  rpc GetPeople (PeopleRequestGrpc) returns (PeopleResponseGrpc);
+  rpc ListPeople (ListPeopleRequestGrpc) returns (ListPeopleResponseGrpc);
 }
 
-message PeopleRequest {
+message PeopleRequestGrpc {
   int32 id = 1;
 }
 
-message ListPeopleRequest {
-}
+message ListPeopleRequestGrpc {}
 
-message PeopleResponse {
+message PeopleResponseGrpc {
   int32 id = 1;
   string name = 2;
   string email = 3;
 }
 
-message ListPeopleResponse {
-  repeated PeopleResponse people = 1;
+message ListPeopleResponseGrpc {
+  repeated PeopleResponseGrpc people = 1;
 }
 ```
 
@@ -121,8 +129,8 @@ message ListPeopleResponse {
 
 | RPC | Request | Response | Descrição |
 |-----|---------|----------|-----------|
-| `GetPeople` | `PeopleRequest` (id) | `PeopleResponse` | Busca uma pessoa por ID |
-| `ListPeople` | `ListPeopleRequest` (vazio) | `ListPeopleResponse` | Lista todas as pessoas |
+| `GetPeople` | `PeopleRequestGrpc` (id) | `PeopleResponseGrpc` | Busca uma pessoa por ID |
+| `ListPeople` | `ListPeopleRequestGrpc` (vazio) | `ListPeopleResponseGrpc` | Lista todas as pessoas |
 
 ---
 
@@ -243,7 +251,7 @@ api/
 │       └── grpc/
 │           └── PeopleGrpcClient.java
 ├── src/main/proto/
-│   └── service.proto
+│   └── person.proto
 └── src/main/resources/
     └── application.yml
 ```
@@ -358,11 +366,20 @@ people/
 │       │       ├── TypiCodePeopleClientImpl.java
 │       │       ├── PeopleResponse.java
 │       │       └── PeopleMapper.java
+│       ├── exception/
+│       │   ├── GlobalGrpcExceptionHandler.java
+│       │   ├── ExternalServiceException.java
+│       │   └── InternalServerException.java
+│       ├── logging/
+│       │   ├── Logger.java
+│       │   ├── LogContext.java
+│       │   ├── RequestContext.java
+│       │   └── GrpcLoggingInterceptor.java
 │       └── config/
 │           ├── UseCaseConfig.java
 │           └── TypiCodeClientConfig.java
 ├── src/main/proto/
-│   └── service.proto
+│   └── person.proto
 └── src/main/resources/
     └── application.yml
 ```
@@ -458,6 +475,33 @@ client:
   typicode:
     base-url: https://jsonplaceholder.typicode.com
 ```
+
+---
+
+## Estrutura Maven
+
+O projeto utiliza uma estrutura **Maven Multi-Module** para facilitar o build e o gerenciamento de dependências.
+
+### POM Parent/Aggregator
+
+Na raiz do projeto, existe um `pom.xml` que funciona como **aggregator**, gerenciando os módulos:
+
+```xml
+<groupId>org</groupId>
+<artifactId>bridge</artifactId>
+<version>1.0-SNAPSHOT</version>
+<packaging>pom</packaging>
+
+<modules>
+    <module>api</module>
+    <module>people</module>
+</modules>
+```
+
+**Benefícios:**
+- **Build unificado**: `mvn clean install` na raiz compila ambos os serviços
+- **Gerenciamento centralizado**: Versões e configurações podem ser compartilhadas
+- **Ordem de build**: Maven resolve automaticamente a ordem de compilação dos módulos
 
 ---
 
@@ -588,11 +632,33 @@ Erros são propagados do People Service para o API Service e retornados como HTT
 
 ### People Service
 
-Erros de comunicação com JSONPlaceholder ou processamento interno são retornados como:
+O People Service possui um sistema robusto de tratamento de exceções:
+
+**Hierarquia de Exceções:**
+
 ```
-Status: INTERNAL
-Description: "Error fetching people: [mensagem de erro]"
+PeopleException (Base)
+├── BusinessRuleException (Regras de negócio)
+├── ValidationException (Validações)
+└── PeopleNotFoundException (Recurso não encontrado)
+
+Infrastructure Exceptions
+├── ExternalServiceException (Erros de serviços externos)
+└── InternalServerException (Erros internos do servidor)
 ```
+
+**GlobalGrpcExceptionHandler:**
+- Intercepta todas as exceções dos serviços gRPC
+- Converte exceções de domínio em status codes gRPC apropriados
+- Adiciona contexto e mensagens de erro estruturadas
+- Registra erros no sistema de logging
+
+**Status Codes gRPC Retornados:**
+- `NOT_FOUND`: Quando recurso não é encontrado
+- `INVALID_ARGUMENT`: Para erros de validação
+- `FAILED_PRECONDITION`: Para violações de regras de negócio
+- `UNAVAILABLE`: Quando serviços externos estão indisponíveis
+- `INTERNAL`: Para erros internos não esperados
 
 ---
 
@@ -610,13 +676,32 @@ Description: "Error fetching people: [mensagem de erro]"
 - Chamadas HTTP para JSONPlaceholder
 - Erros de integração
 
-### Monitoramento
+### Logging Estruturado (People Service)
 
-Ambos os serviços são construídos com Spring Boot e suportam:
+O People Service implementa logging estruturado usando **Logstash Logback Encoder**:
+
+**Componentes:**
+- **Logger**: Facade customizado para logging estruturado
+- **LogContext**: Contexto de log com dados da requisição
+- **RequestContext**: Armazena informações de contexto da requisição
+- **GrpcLoggingInterceptor**: Interceptor gRPC para log automático de requisições
+
+**Benefícios:**
+- Logs em formato JSON para fácil parsing
+- Rastreabilidade de requisições com correlation IDs
+- Integração com ferramentas de agregação de logs (ELK Stack, Datadog)
+
+### Monitoramento e Observabilidade
+
+**People Service** possui integração com:
+- **Datadog APM**: Trace distribuído e métricas de aplicação
+- **Logstash**: Logs estruturados em JSON
+- **gRPC Server Reflection**: Introspecção de serviços gRPC
+
+**Ambos os serviços** suportam:
 - Spring Boot Actuator (pode ser adicionado)
 - Métricas Micrometer
 - Health checks
-- gRPC Server Reflection (para ferramentas como grpcurl)
 
 ---
 
