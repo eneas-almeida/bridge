@@ -355,12 +355,12 @@ people/
 │   │   └── entity/
 │   │       └── People.java
 │   ├── usecase/
-│   │   ├── GetPeopleUseCase.java
-│   │   └── ListPeopleUseCase.java
+│   │   ├── GetPeopleUseCaseImpl.java
+│   │   └── ListPeopleUseCaseImpl.java
 │   └── infrastructure/
 │       ├── entrypoint/
 │       │   └── grpc/
-│       │       └── PeopleGrpcService.java
+│       │       └── PeopleGrpcServiceImpl.java
 │       ├── adapter/
 │       │   └── typicode/
 │       │       ├── TypiCodePeopleClientImpl.java
@@ -386,11 +386,11 @@ people/
 
 ### Componentes Principais
 
-#### 1. PeopleGrpcService (`infrastructure/entrypoint/grpc/PeopleGrpcService.java`)
+#### 1. PeopleGrpcServiceImpl (`infrastructure/entrypoint/grpc/PeopleGrpcServiceImpl.java`)
 
 ```java
 @GrpcService
-public class PeopleGrpcService extends PeopleServiceImplBase {
+public class PeopleGrpcServiceImpl extends ReactorPeopleServiceGrpc.PeopleServiceImplBase {
 
     @Override
     public void getPeople(PeopleRequest request,
@@ -410,23 +410,23 @@ public class PeopleGrpcService extends PeopleServiceImplBase {
 
 #### 2. Use Cases (`usecase/`)
 
-**GetPeopleUseCase**
+**GetPeopleUseCaseImpl**
 ```java
-public class GetPeopleUseCase {
+public class GetPeopleUseCaseImpl {
     public Mono<People> execute(Integer peopleId)
 }
 ```
 
-**ListPeopleUseCase**
+**ListPeopleUseCaseImpl**
 ```java
-public class ListPeopleUseCase {
+public class ListPeopleUseCaseImpl {
     public Flux<People> execute()
 }
 ```
 
 **Responsabilidades:**
 - Orquestrar a lógica de negócio
-- Chamar o cliente HTTP para JSONPlaceholder
+- Interagir com o repositório para acessar dados
 
 #### 3. TypiCodePeopleClientImpl (`infrastructure/adapter/typicode/TypiCodePeopleClientImpl.java`)
 
