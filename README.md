@@ -352,8 +352,12 @@ people/
 │   ├── domain/
 │   │   ├── client/
 │   │   │   └── PeopleClient.java (Interface)
-│   │   └── entity/
-│   │       └── People.java
+│   │   ├── entity/
+│   │   │   └── People.java
+│   │   ├── enums/
+│   │   │   └── DataSource.java
+│   │   └── repository/
+│   │       └── PeopleRepository.java (Interface)
 │   ├── usecase/
 │   │   ├── GetPeopleUseCaseImpl.java
 │   │   └── ListPeopleUseCaseImpl.java
@@ -362,10 +366,16 @@ people/
 │       │   └── grpc/
 │       │       └── PeopleGrpcServiceImpl.java
 │       ├── adapter/
-│       │   └── typicode/
-│       │       ├── TypiCodePeopleClientImpl.java
-│       │       ├── PeopleResponse.java
-│       │       └── PeopleMapper.java
+│       │   ├── typicode/
+│       │   │   ├── TypiCodePeopleClientImpl.java
+│       │   │   ├── TypiCodeResponse.java
+│       │   │   └── TypiCodeMapper.java
+│       │   └── reqres/
+│       │       ├── ReqResPeopleClientImpl.java
+│       │       ├── ReqResResponse.java
+│       │       └── ReqResMapper.java
+│       ├── repository/
+│       │   └── PeopleRepositoryImpl.java
 │       ├── exception/
 │       │   ├── GlobalGrpcExceptionHandler.java
 │       │   ├── ExternalServiceException.java
@@ -377,7 +387,8 @@ people/
 │       │   └── GrpcLoggingInterceptor.java
 │       └── config/
 │           ├── UseCaseConfig.java
-│           └── TypiCodeClientConfig.java
+│           ├── TypiCodeClientConfig.java
+│           └── ReqResClientConfig.java
 ├── src/main/proto/
 │   └── person.proto
 └── src/main/resources/
@@ -447,17 +458,52 @@ public class TypiCodePeopleClientImpl implements PeopleClient {
 - Realizar chamadas HTTP para a API externa JSONPlaceholder
 - Mapear respostas JSON para entidades de domínio usando MapStruct
 
-#### 4. PeopleMapper (`infrastructure/adapter/typicode/PeopleMapper.java`)
+#### 5. TypiCodeMapper (`infrastructure/adapter/typicode/TypiCodeMapper.java`)
 
 ```java
 @Mapper(componentModel = "spring")
-public interface PeopleMapper {
-    People toPeople(PeopleResponse response);
+public interface TypiCodeMapper {
+    People toPeople(TypiCodeResponse response);
 }
 ```
 
 **Responsabilidades:**
 - Mapeamento type-safe de DTOs para entidades de domínio
+- Geração de código em tempo de compilação via MapStruct
+
+#### 6. ReqResPeopleClientImpl (`infrastructure/adapter/reqres/ReqResPeopleClientImpl.java`)
+
+```java
+@Component
+public class ReqResPeopleClientImpl implements PeopleClient {
+
+    @Autowired
+    private WebClient reqresWebClient;
+
+    public Mono<People> findById(Integer id)
+    public Flux<People> listAll()
+}
+```
+
+**Responsabilidades:**
+- Implementar a interface PeopleClient
+- Realizar chamadas HTTP para a API externa ReqRes
+- Mapear respostas JSON para entidades de domínio usando MapStruct
+- Combinar first_name e last_name em um único campo name
+
+#### 7. ReqResMapper (`infrastructure/adapter/reqres/ReqResMapper.java`)
+
+```java
+@Mapper(componentModel = "spring")
+public interface ReqResMapper {
+    @Mapping(target = "name", expression = "java(response.firstName() + \" \" + response.lastName())")
+    People toPeople(ReqResResponse response);
+}
+```
+
+**Responsabilidades:**
+- Mapeamento customizado de DTOs da API ReqRes para entidades de domínio
+- Combinar campos first_name e last_name em name
 - Geração de código em tempo de compilação via MapStruct
 
 ### Configuração (`application.yml`)
@@ -472,8 +518,11 @@ grpc:
     port: 9090
 
 client:
+  active-datasource: TYPICODE  # Options: TYPICODE, REQRES
   typicode:
     base-url: https://jsonplaceholder.typicode.com
+  reqres:
+    base-url: https://reqres.in/api
 ```
 
 ---
