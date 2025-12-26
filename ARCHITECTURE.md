@@ -28,26 +28,33 @@ graph TB
 ```mermaid
 graph TB
     subgraph "API Service - Clean Architecture"
-        Controller[PeopleController<br/>REST Endpoints]
-        UseCase1[GetPeopleUseCase]
-        UseCase2[ListPeopleUseCase]
-        ClientInterface[PeopleClient<br/>Interface]
-        GrpcClient[PeopleGrpcClient<br/>gRPC Implementation]
+        Controller[PeopleControllerImpl<br/>REST Endpoints<br/>@RequiredArgsConstructor]
+        ServiceInterface[PeopleService<br/>Interface]
+        ServiceImpl[PeopleServiceImpl<br/>@Service]
+        RepoInterface[PeopleRepository<br/>Interface]
+        RepoImpl[PeopleRepositoryImpl]
+        ClientInterface[PeopleServiceClient<br/>Interface]
+        GrpcClient[PeopleServiceGrpcClientImpl<br/>gRPC + MapStruct]
+        Mapper[PeopleGrpcMapper<br/>MapStruct]
 
-        Controller -->|delegates| UseCase1
-        Controller -->|delegates| UseCase2
-        UseCase1 -->|uses| ClientInterface
-        UseCase2 -->|uses| ClientInterface
+        Controller -->|injects| ServiceInterface
+        ServiceInterface -->|implemented by| ServiceImpl
+        ServiceImpl -->|uses| RepoInterface
+        RepoInterface -->|implemented by| RepoImpl
+        RepoImpl -->|uses| ClientInterface
         ClientInterface -->|implemented by| GrpcClient
+        GrpcClient -->|uses| Mapper
     end
 
     GrpcClient -->|gRPC calls| PeopleService[People Service<br/>Port 9090]
 
     style Controller fill:#ff9999
-    style UseCase1 fill:#ffcc99
-    style UseCase2 fill:#ffcc99
-    style ClientInterface fill:#99ccff
+    style ServiceInterface fill:#ffcc99
+    style ServiceImpl fill:#ffcc99
+    style RepoInterface fill:#99ccff
+    style RepoImpl fill:#99ccff
     style GrpcClient fill:#99ff99
+    style Mapper fill:#ffff99
 ```
 
 ---
@@ -57,29 +64,40 @@ graph TB
 ```mermaid
 graph TB
     subgraph "People Service - Clean Architecture"
-        GrpcService[PeopleGrpcService<br/>gRPC Server]
-        UseCase1[GetPeopleUseCase]
-        UseCase2[ListPeopleUseCase]
+        GrpcService[PeopleServiceGrpcImpl<br/>gRPC Server<br/>@RequiredArgsConstructor]
+        ServiceInterface[PeopleService<br/>Interface]
+        ServiceImpl[PeopleServiceImpl<br/>@Service]
+        RepoInterface[PeopleRepository<br/>Interface]
+        RepoImpl[PeopleRepositoryImpl<br/>Strategy Pattern]
         ClientInterface[PeopleClient<br/>Interface]
-        HttpClient[TypiCodePeopleClientImpl<br/>HTTP Client]
-        Mapper[PeopleMapper<br/>MapStruct]
+        TypiClient[TypiCodeClientImpl<br/>HTTP Client]
+        DummyClient[DummyClientImpl<br/>HTTP Client]
+        TypiMapper[TypiCodeMapper<br/>MapStruct]
+        DummyMapper[DummyMapper<br/>MapStruct]
 
-        GrpcService -->|delegates| UseCase1
-        GrpcService -->|delegates| UseCase2
-        UseCase1 -->|uses| ClientInterface
-        UseCase2 -->|uses| ClientInterface
-        ClientInterface -->|implemented by| HttpClient
-        HttpClient -->|uses| Mapper
+        GrpcService -->|injects| ServiceInterface
+        ServiceInterface -->|implemented by| ServiceImpl
+        ServiceImpl -->|uses| RepoInterface
+        RepoInterface -->|implemented by| RepoImpl
+        RepoImpl -->|Strategy| ClientInterface
+        ClientInterface -->|implemented by| TypiClient
+        ClientInterface -->|implemented by| DummyClient
+        TypiClient -->|uses| TypiMapper
+        DummyClient -->|uses| DummyMapper
     end
 
-    HttpClient -->|HTTP REST| External[JSONPlaceholder API]
+    TypiClient -->|HTTP REST| TypiExternal[JSONPlaceholder API]
+    DummyClient -->|HTTP REST| DummyExternal[DummyJSON API]
 
     style GrpcService fill:#99ff99
-    style UseCase1 fill:#ffcc99
-    style UseCase2 fill:#ffcc99
-    style ClientInterface fill:#99ccff
-    style HttpClient fill:#ff99ff
-    style Mapper fill:#ffff99
+    style ServiceInterface fill:#ffcc99
+    style ServiceImpl fill:#ffcc99
+    style RepoInterface fill:#99ccff
+    style RepoImpl fill:#99ccff
+    style TypiClient fill:#ff99ff
+    style DummyClient fill:#ff99ff
+    style TypiMapper fill:#ffff99
+    style DummyMapper fill:#ffff99
 ```
 
 ---
@@ -89,30 +107,40 @@ graph TB
 ```mermaid
 sequenceDiagram
     participant Client as Cliente
-    participant Controller as PeopleController
-    participant UseCase as GetPeopleUseCase
-    participant GrpcClient as PeopleGrpcClient
-    participant GrpcService as PeopleGrpcService
-    participant PeopleUseCase as GetPeopleUseCase (People)
+    participant Controller as PeopleControllerImpl
+    participant Service as PeopleServiceImpl (API)
+    participant Repo as PeopleRepositoryImpl (API)
+    participant GrpcClient as PeopleServiceGrpcClientImpl
+    participant Mapper as PeopleGrpcMapper
+    participant GrpcService as PeopleServiceGrpcImpl
+    participant PeopleService as PeopleServiceImpl (People)
+    participant PeopleRepo as PeopleRepositoryImpl (People)
     participant HttpClient as TypiCodeClientImpl
+    participant HttpMapper as TypiCodeMapper
     participant External as JSONPlaceholder
 
     Client->>Controller: GET /api/peoples/1
     activate Controller
 
-    Controller->>UseCase: execute(1)
-    activate UseCase
+    Controller->>Service: getById(1)
+    activate Service
 
-    UseCase->>GrpcClient: getPeopleById(1)
+    Service->>Repo: findById(1)
+    activate Repo
+
+    Repo->>GrpcClient: getPeopleById(1)
     activate GrpcClient
 
     GrpcClient->>GrpcService: gRPC: GetPeople(id=1)
     activate GrpcService
 
-    GrpcService->>PeopleUseCase: execute(1)
-    activate PeopleUseCase
+    GrpcService->>PeopleService: getById(1)
+    activate PeopleService
 
-    PeopleUseCase->>HttpClient: findById(1)
+    PeopleService->>PeopleRepo: findById(1)
+    activate PeopleRepo
+
+    PeopleRepo->>HttpClient: getPeopleById(1)
     activate HttpClient
 
     HttpClient->>External: GET /users/1
@@ -121,20 +149,36 @@ sequenceDiagram
     External-->>HttpClient: JSON {id, name, email}
     deactivate External
 
-    HttpClient-->>PeopleUseCase: Mono<People>
+    HttpClient->>HttpMapper: toPeopleResponse(response)
+    activate HttpMapper
+    HttpMapper-->>HttpClient: PeopleResponse
+    deactivate HttpMapper
+
+    HttpClient-->>PeopleRepo: Mono<PeopleResponse>
     deactivate HttpClient
 
-    PeopleUseCase-->>GrpcService: Mono<People>
-    deactivate PeopleUseCase
+    PeopleRepo-->>PeopleService: Mono<PeopleResponse>
+    deactivate PeopleRepo
 
-    GrpcService-->>GrpcClient: PeopleResponse (protobuf)
+    PeopleService-->>GrpcService: Mono<PeopleResponse>
+    deactivate PeopleService
+
+    GrpcService-->>GrpcClient: PeopleResponseGrpc (protobuf)
     deactivate GrpcService
 
-    GrpcClient-->>UseCase: Mono<People>
+    GrpcClient->>Mapper: toPeopleResponse(proto)
+    activate Mapper
+    Mapper-->>GrpcClient: PeopleResponse
+    deactivate Mapper
+
+    GrpcClient-->>Repo: Mono<PeopleResponse>
     deactivate GrpcClient
 
-    UseCase-->>Controller: Mono<People>
-    deactivate UseCase
+    Repo-->>Service: Mono<PeopleResponse>
+    deactivate Repo
+
+    Service-->>Controller: Mono<PeopleResponse>
+    deactivate Service
 
     Controller-->>Client: JSON {id, name, email}
     deactivate Controller
@@ -147,30 +191,40 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Client as Cliente
-    participant Controller as PeopleController
-    participant UseCase as ListPeopleUseCase
-    participant GrpcClient as PeopleGrpcClient
-    participant GrpcService as PeopleGrpcService
-    participant PeopleUseCase as ListPeopleUseCase (People)
+    participant Controller as PeopleControllerImpl
+    participant Service as PeopleServiceImpl (API)
+    participant Repo as PeopleRepositoryImpl (API)
+    participant GrpcClient as PeopleServiceGrpcClientImpl
+    participant Mapper as PeopleGrpcMapper
+    participant GrpcService as PeopleServiceGrpcImpl
+    participant PeopleService as PeopleServiceImpl (People)
+    participant PeopleRepo as PeopleRepositoryImpl (People)
     participant HttpClient as TypiCodeClientImpl
+    participant HttpMapper as TypiCodeMapper
     participant External as JSONPlaceholder
 
     Client->>Controller: GET /api/peoples
     activate Controller
 
-    Controller->>UseCase: execute()
-    activate UseCase
+    Controller->>Service: listAll()
+    activate Service
 
-    UseCase->>GrpcClient: listPeople()
+    Service->>Repo: findAll()
+    activate Repo
+
+    Repo->>GrpcClient: listPeople()
     activate GrpcClient
 
     GrpcClient->>GrpcService: gRPC: ListPeople()
     activate GrpcService
 
-    GrpcService->>PeopleUseCase: execute()
-    activate PeopleUseCase
+    GrpcService->>PeopleService: listAll()
+    activate PeopleService
 
-    PeopleUseCase->>HttpClient: listAll()
+    PeopleService->>PeopleRepo: findAll()
+    activate PeopleRepo
+
+    PeopleRepo->>HttpClient: listPeople()
     activate HttpClient
 
     HttpClient->>External: GET /users
@@ -179,20 +233,40 @@ sequenceDiagram
     External-->>HttpClient: JSON Array [{id, name, email}, ...]
     deactivate External
 
-    HttpClient-->>PeopleUseCase: Flux<People>
+    loop For each user
+        HttpClient->>HttpMapper: toPeopleResponse(response)
+        activate HttpMapper
+        HttpMapper-->>HttpClient: PeopleResponse
+        deactivate HttpMapper
+    end
+
+    HttpClient-->>PeopleRepo: Flux<PeopleResponse>
     deactivate HttpClient
 
-    PeopleUseCase-->>GrpcService: Flux<People>
-    deactivate PeopleUseCase
+    PeopleRepo-->>PeopleService: Flux<PeopleResponse>
+    deactivate PeopleRepo
 
-    GrpcService-->>GrpcClient: ListPeopleResponse (repeated)
+    PeopleService-->>GrpcService: Flux<PeopleResponse>
+    deactivate PeopleService
+
+    GrpcService-->>GrpcClient: ListPeopleResponseGrpc (repeated)
     deactivate GrpcService
 
-    GrpcClient-->>UseCase: Flux<People>
+    loop For each proto
+        GrpcClient->>Mapper: toPeopleResponse(proto)
+        activate Mapper
+        Mapper-->>GrpcClient: PeopleResponse
+        deactivate Mapper
+    end
+
+    GrpcClient-->>Repo: Flux<PeopleResponse>
     deactivate GrpcClient
 
-    UseCase-->>Controller: Flux<People>
-    deactivate UseCase
+    Repo-->>Service: Flux<PeopleResponse>
+    deactivate Repo
+
+    Service-->>Controller: Flux<PeopleResponse>
+    deactivate Service
 
     Controller-->>Client: JSON Array [{id, name, email}, ...]
     deactivate Controller
@@ -207,42 +281,45 @@ graph TB
     subgraph "Clean Architecture Layers"
         direction TB
 
-        subgraph Presentation["Presentation Layer (Adapters)"]
-            REST[REST Controllers<br/>PeopleController]
-            GRPC[gRPC Services<br/>PeopleGrpcService]
+        subgraph Presentation["Presentation Layer (Controllers/Entrypoints)"]
+            REST[REST Controllers<br/>PeopleControllerImpl<br/>@RequiredArgsConstructor]
+            GRPC[gRPC Services<br/>PeopleServiceGrpcImpl<br/>@RequiredArgsConstructor]
         end
 
-        subgraph Application["Application Layer (Use Cases)"]
-            UC1[GetPeopleUseCase]
-            UC2[ListPeopleUseCase]
+        subgraph Application["Application Layer (Services + DTOs)"]
+            ServiceInterface[PeopleService<br/>Interface]
+            ServiceImpl[PeopleServiceImpl<br/>@Service]
+            DTO[PeopleResponse<br/>DTO]
         end
 
-        subgraph Domain["Domain Layer (Business Logic)"]
-            Entity[People Entity]
-            Interface[PeopleClient Interface]
+        subgraph Domain["Domain Layer (Interfaces)"]
+            RepoInterface[PeopleRepository<br/>Interface]
+            ClientInterface[PeopleClient/PeopleServiceClient<br/>Interface]
         end
 
-        subgraph Infrastructure["Infrastructure Layer (Adapters)"]
-            GrpcImpl[PeopleGrpcClient]
-            HttpImpl[TypiCodeClientImpl]
-            Mapper[Mappers]
+        subgraph Infrastructure["Infrastructure Layer (Implementations)"]
+            RepoImpl[PeopleRepositoryImpl]
+            GrpcImpl[PeopleServiceGrpcClientImpl]
+            HttpImpl[TypiCodeClientImpl<br/>DummyClientImpl]
+            Mapper[MapStruct Mappers<br/>PeopleGrpcMapper<br/>TypiCodeMapper<br/>DummyMapper]
         end
 
-        REST --> UC1
-        REST --> UC2
-        GRPC --> UC1
-        GRPC --> UC2
+        REST -->|injects| ServiceInterface
+        GRPC -->|injects| ServiceInterface
+        ServiceInterface -->|implemented by| ServiceImpl
 
-        UC1 --> Interface
-        UC2 --> Interface
+        ServiceImpl -->|uses| RepoInterface
+        RepoInterface -->|implemented by| RepoImpl
 
-        Interface --> Entity
+        RepoImpl -->|uses| ClientInterface
 
-        GrpcImpl -.implements.-> Interface
-        HttpImpl -.implements.-> Interface
+        GrpcImpl -.implements.-> ClientInterface
+        HttpImpl -.implements.-> ClientInterface
 
-        GrpcImpl --> Mapper
-        HttpImpl --> Mapper
+        GrpcImpl -->|uses| Mapper
+        HttpImpl -->|uses| Mapper
+
+        ServiceImpl -->|returns| DTO
     end
 
     style Presentation fill:#ffcccc
@@ -325,9 +402,13 @@ graph LR
 ```mermaid
 graph LR
     A[HTTP Request] -->|Mono/Flux| B[Controller]
-    B -->|Mono/Flux| C[Use Case]
-    C -->|Mono/Flux| D[Client]
-    D -->|Blocking Call<br/>wrapped in Mono| E[gRPC/HTTP]
+    B -->|Mono/Flux| C[Service]
+    C -->|Mono/Flux| D[Repository]
+    D -->|Mono/Flux| E[Client]
+    E -->|Blocking Call<br/>wrapped in Mono| F[gRPC/HTTP]
+    F -->|Mono/Flux| E
+    E -->|MapStruct| G[Mapper]
+    G -->|DTO| E
     E -->|Mono/Flux| D
     D -->|Mono/Flux| C
     C -->|Mono/Flux| B
@@ -338,14 +419,19 @@ graph LR
 
 ```mermaid
 graph TB
-    A[External JSON] -->|Jackson| B[DTO/Record]
-    B -->|MapStruct| C[Domain Entity]
+    A[External JSON] -->|Jackson| B[External Response]
+    B -->|MapStruct<br/>TypiCodeMapper<br/>DummyMapper| C[PeopleResponse DTO]
     C -->|Manual Mapping| D[Protobuf Message]
     D -->|gRPC Wire| E[Network]
     E -->|gRPC Wire| F[Protobuf Message]
-    F -->|Manual Mapping| G[Domain Entity]
-    G -->|DTO Mapper| H[Response DTO]
-    H -->|Jackson| I[JSON Response]
+    F -->|MapStruct<br/>PeopleGrpcMapper| G[PeopleResponse DTO]
+    G -->|Jackson| H[JSON Response]
+
+    style B fill:#ffe1e1
+    style C fill:#e1ffe1
+    style D fill:#e1e1ff
+    style F fill:#e1e1ff
+    style G fill:#e1ffe1
 ```
 
 ---
@@ -392,7 +478,8 @@ graph TB
         A2[Spring WebFlux]
         A3[gRPC Client Starter]
         A4[Project Reactor]
-        A5[Lombok]
+        A5[MapStruct 1.5.5]
+        A6[Lombok]
     end
 
     subgraph "People Service Stack"
@@ -400,21 +487,25 @@ graph TB
         P2[Spring WebFlux]
         P3[gRPC Server Starter]
         P4[Project Reactor]
-        P5[MapStruct]
-        P6[Lombok]
+        P5[Reactor gRPC 1.2.4]
+        P6[MapStruct 1.5.5]
+        P7[Lombok]
+        P8[Logstash Encoder]
     end
 
     subgraph "Common Stack"
         C1[Java 21]
         C2[Maven]
-        C3[gRPC 1.58.0]
-        C4[Protobuf 3.24.3]
+        C3[gRPC 1.58.0/1.59.0]
+        C4[Protobuf 3.24.3/3.24.4]
     end
 
     A1 -.-> C1
     P1 -.-> C1
     A2 -.-> A4
     P2 -.-> P4
+    A5 -.shares config.-> P6
+    A6 -.shares config.-> P7
 ```
 
 ---
@@ -427,9 +518,11 @@ stateDiagram-v2
 
     ClientRequest --> APIController: Route to endpoint
 
-    APIController --> APIUseCase: Delegate business logic
+    APIController --> APIService: Delegate to service
 
-    APIUseCase --> GrpcClient: Call external service
+    APIService --> APIRepository: Delegate to repository
+
+    APIRepository --> GrpcClient: Call gRPC client
 
     GrpcClient --> GrpcSerialization: Serialize to Protobuf
 
@@ -439,35 +532,39 @@ stateDiagram-v2
 
     GrpcDeserialization --> PeopleGrpcService: Route to RPC handler
 
-    PeopleGrpcService --> PeopleUseCase: Delegate business logic
+    PeopleGrpcService --> PeopleService: Delegate to service
 
-    PeopleUseCase --> HttpClient: Call external API
+    PeopleService --> PeopleRepository: Delegate to repository
+
+    PeopleRepository --> HttpClient: Call HTTP client
 
     HttpClient --> ExternalAPI: HTTP GET JSONPlaceholder
 
     ExternalAPI --> HttpClient: JSON Response
 
-    HttpClient --> Mapping: Map to Domain Entity
+    HttpClient --> MapStructMapping: MapStruct Mapper
 
-    Mapping --> PeopleUseCase: Return Mono/Flux
+    MapStructMapping --> PeopleRepository: Return Mono/Flux<DTO>
 
-    PeopleUseCase --> PeopleGrpcService: Return result
+    PeopleRepository --> PeopleService: Return Mono/Flux<DTO>
 
-    PeopleGrpcService --> ProtoMapping: Map to Protobuf
+    PeopleService --> PeopleGrpcService: Return Mono/Flux<DTO>
+
+    PeopleGrpcService --> ProtoMapping: Map DTO to Protobuf
 
     ProtoMapping --> Network: Send gRPC response
 
-    Network --> GrpcClient: Receive response
+    Network --> GrpcClient: Receive Protobuf response
 
-    GrpcClient --> DomainMapping: Map to Domain Entity
+    GrpcClient --> GrpcMapStructMapping: MapStruct Mapper
 
-    DomainMapping --> APIUseCase: Return Mono/Flux
+    GrpcMapStructMapping --> APIRepository: Return Mono/Flux<DTO>
 
-    APIUseCase --> APIController: Return result
+    APIRepository --> APIService: Return Mono/Flux<DTO>
 
-    APIController --> DTOMapping: Map to DTO
+    APIService --> APIController: Return Mono/Flux<DTO>
 
-    DTOMapping --> JSONSerialization: Serialize to JSON
+    APIController --> JSONSerialization: Serialize DTO to JSON
 
     JSONSerialization --> [*]: HTTP Response
 ```
