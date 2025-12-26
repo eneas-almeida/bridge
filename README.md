@@ -5,13 +5,14 @@
 O projeto **Bridge** é uma arquitetura de microserviços composta por dois serviços principais que se comunicam via **gRPC**:
 
 - **API Service**: Gateway REST que expõe endpoints HTTP e se comunica com o serviço People via gRPC
-- **People Service**: Serviço backend que fornece dados de usuários via gRPC, consumindo a API externa JSONPlaceholder
+- **People Service**: Serviço backend que fornece dados de usuários via gRPC, com suporte a múltiplas fontes de dados externas (JSONPlaceholder ou DummyJSON)
 
 ```
-┌──────────────┐     HTTP/REST      ┌──────────────┐      gRPC       ┌──────────────┐     HTTP
-│   Cliente    │ ─────────────────> │  API Service │ ──────────────> │People Service│ ──────────> JSONPlaceholder
-│  (Browser)   │                    │  (Port 8081) │                 │ (Port 9090)  │             (External API)
-└──────────────┘                    └──────────────┘                 └──────────────┘
+┌──────────────┐     HTTP/REST      ┌──────────────┐      gRPC       ┌──────────────┐     HTTP      ┌─────────────────┐
+│   Cliente    │ ─────────────────> │  API Service │ ──────────────> │People Service│ ────────────> │ External APIs   │
+│  (Browser)   │                    │  (Port 8081) │                 │ (Port 9090)  │               │ - JSONPlaceholder│
+└──────────────┘                    └──────────────┘                 └──────────────┘               │ - DummyJSON     │
+                                                                                                      └─────────────────┘
 ```
 
 ---
@@ -139,89 +140,91 @@ message ListPeopleResponseGrpc {
 ### Fluxo 1: Buscar Pessoa por ID
 
 ```
-Cliente                 API Service                People Service              JSONPlaceholder
-  │                          │                           │                            │
-  │ GET /api/peoples/1       │                           │                            │
-  ├─────────────────────────>│                           │                            │
-  │                          │                           │                            │
-  │                          │ PeopleController          │                            │
-  │                          │        ↓                  │                            │
-  │                          │ GetPeopleUseCase          │                            │
-  │                          │        ↓                  │                            │
-  │                          │ PeopleGrpcClient          │                            │
-  │                          │                           │                            │
-  │                          │ gRPC: GetPeople(id=1)     │                            │
-  │                          ├──────────────────────────>│                            │
-  │                          │                           │ PeopleGrpcService          │
-  │                          │                           │        ↓                   │
-  │                          │                           │ GetPeopleUseCase           │
-  │                          │                           │        ↓                   │
-  │                          │                           │ TypiCodePeopleClientImpl   │
-  │                          │                           │                            │
-  │                          │                           │ GET /users/1               │
-  │                          │                           ├───────────────────────────>│
-  │                          │                           │                            │
-  │                          │                           │ JSON Response              │
-  │                          │                           │<───────────────────────────┤
-  │                          │                           │                            │
-  │                          │                           │ Map to Domain Entity       │
-  │                          │                           │ (People)                   │
-  │                          │                           │                            │
-  │                          │ PeopleResponse (protobuf) │                            │
-  │                          │<──────────────────────────┤                            │
-  │                          │                           │                            │
-  │                          │ Map to Domain Entity      │                            │
-  │                          │ (People)                  │                            │
-  │                          │        ↓                  │                            │
-  │                          │ Map to DTO                │                            │
-  │                          │ (PeopleResponse)          │                            │
-  │                          │                           │                            │
-  │ JSON Response            │                           │                            │
-  │<─────────────────────────┤                           │                            │
-  │                          │                           │                            │
+Cliente              API Service             People Service          External API
+  │                       │                        │                (DummyJSON ou JSONPlaceholder)
+  │ GET /api/peoples/1    │                        │                        │
+  ├──────────────────────>│                        │                        │
+  │                       │ PeopleController       │                        │
+  │                       │        ↓               │                        │
+  │                       │ GetPeopleUseCase       │                        │
+  │                       │        ↓               │                        │
+  │                       │ PeopleGrpcClient       │                        │
+  │                       │                        │                        │
+  │                       │ gRPC: GetPeople(id=1)  │                        │
+  │                       ├───────────────────────>│                        │
+  │                       │                        │ PeopleGrpcService      │
+  │                       │                        │        ↓               │
+  │                       │                        │ GetPeopleUseCase       │
+  │                       │                        │        ↓               │
+  │                       │                        │ PeopleRepository       │
+  │                       │                        │   (Strategy Pattern)   │
+  │                       │                        │        ↓               │
+  │                       │                        │ DummyPeopleClient ou   │
+  │                       │                        │ TypiCodePeopleClient   │
+  │                       │                        │                        │
+  │                       │                        │ GET /users/1           │
+  │                       │                        ├───────────────────────>│
+  │                       │                        │                        │
+  │                       │                        │ JSON Response          │
+  │                       │                        │<───────────────────────┤
+  │                       │                        │                        │
+  │                       │                        │ Map to DTO             │
+  │                       │                        │ (PeopleResponse)       │
+  │                       │                        │                        │
+  │                       │ PeopleResponse (gRPC)  │                        │
+  │                       │<───────────────────────┤                        │
+  │                       │                        │                        │
+  │                       │ Map to Domain Entity   │                        │
+  │                       │        ↓               │                        │
+  │                       │ Map to DTO             │                        │
+  │                       │                        │                        │
+  │ JSON Response         │                        │                        │
+  │<──────────────────────┤                        │                        │
 ```
 
 ### Fluxo 2: Listar Todas as Pessoas
 
 ```
-Cliente                 API Service                People Service              JSONPlaceholder
-  │                          │                           │                            │
-  │ GET /api/peoples         │                           │                            │
-  ├─────────────────────────>│                           │                            │
-  │                          │                           │                            │
-  │                          │ PeopleController          │                            │
-  │                          │        ↓                  │                            │
-  │                          │ ListPeopleUseCase         │                            │
-  │                          │        ↓                  │                            │
-  │                          │ PeopleGrpcClient          │                            │
-  │                          │                           │                            │
-  │                          │ gRPC: ListPeople()        │                            │
-  │                          ├──────────────────────────>│                            │
-  │                          │                           │ PeopleGrpcService          │
-  │                          │                           │        ↓                   │
-  │                          │                           │ ListPeopleUseCase          │
-  │                          │                           │        ↓                   │
-  │                          │                           │ TypiCodePeopleClientImpl   │
-  │                          │                           │                            │
-  │                          │                           │ GET /users                 │
-  │                          │                           ├───────────────────────────>│
-  │                          │                           │                            │
-  │                          │                           │ JSON Array Response        │
-  │                          │                           │<───────────────────────────┤
-  │                          │                           │                            │
-  │                          │                           │ Map to Flux<People>        │
-  │                          │                           │                            │
-  │                          │ ListPeopleResponse        │                            │
-  │                          │ (repeated PeopleResponse) │                            │
-  │                          │<──────────────────────────┤                            │
-  │                          │                           │                            │
-  │                          │ Map to Flux<People>       │                            │
-  │                          │        ↓                  │                            │
-  │                          │ Map to Flux<DTO>          │                            │
-  │                          │                           │                            │
-  │ JSON Array Response      │                           │                            │
-  │<─────────────────────────┤                           │                            │
-  │                          │                           │                            │
+Cliente              API Service             People Service          External API
+  │                       │                        │                (DummyJSON ou JSONPlaceholder)
+  │ GET /api/peoples      │                        │                        │
+  ├──────────────────────>│                        │                        │
+  │                       │ PeopleController       │                        │
+  │                       │        ↓               │                        │
+  │                       │ ListPeopleUseCase      │                        │
+  │                       │        ↓               │                        │
+  │                       │ PeopleGrpcClient       │                        │
+  │                       │                        │                        │
+  │                       │ gRPC: ListPeople()     │                        │
+  │                       ├───────────────────────>│                        │
+  │                       │                        │ PeopleGrpcService      │
+  │                       │                        │        ↓               │
+  │                       │                        │ ListPeopleUseCase      │
+  │                       │                        │        ↓               │
+  │                       │                        │ PeopleRepository       │
+  │                       │                        │   (Strategy Pattern)   │
+  │                       │                        │        ↓               │
+  │                       │                        │ DummyPeopleClient ou   │
+  │                       │                        │ TypiCodePeopleClient   │
+  │                       │                        │                        │
+  │                       │                        │ GET /users             │
+  │                       │                        ├───────────────────────>│
+  │                       │                        │                        │
+  │                       │                        │ JSON Array Response    │
+  │                       │                        │<───────────────────────┤
+  │                       │                        │                        │
+  │                       │                        │ Map to Flux<DTO>       │
+  │                       │                        │                        │
+  │                       │ ListPeopleResponse     │                        │
+  │                       │ (repeated gRPC)        │                        │
+  │                       │<───────────────────────┤                        │
+  │                       │                        │                        │
+  │                       │ Map to Flux<Entity>    │                        │
+  │                       │        ↓               │                        │
+  │                       │ Map to Flux<DTO>       │                        │
+  │                       │                        │                        │
+  │ JSON Array Response   │                        │                        │
+  │<──────────────────────┤                        │                        │
 ```
 
 ---
@@ -356,24 +359,32 @@ people/
 │   │   │   └── People.java
 │   │   ├── enums/
 │   │   │   └── DataSource.java
+│   │   ├── exception/
+│   │   │   ├── PeopleException.java
+│   │   │   ├── BusinessRuleException.java
+│   │   │   ├── ValidationException.java
+│   │   │   └── PeopleNotFoundException.java
 │   │   └── repository/
 │   │       └── PeopleRepository.java (Interface)
-│   ├── usecase/
-│   │   ├── GetPeopleUseCaseImpl.java
-│   │   └── ListPeopleUseCaseImpl.java
+│   ├── application/
+│   │   ├── dto/
+│   │   │   └── PeopleResponse.java
+│   │   └── usecase/
+│   │       ├── GetPeopleUseCaseImpl.java
+│   │       └── ListPeopleUseCaseImpl.java
 │   └── infrastructure/
 │       ├── entrypoint/
 │       │   └── grpc/
 │       │       └── PeopleGrpcServiceImpl.java
-│       ├── adapter/
+│       ├── client/
 │       │   ├── typicode/
 │       │   │   ├── TypiCodePeopleClientImpl.java
-│       │   │   ├── TypiCodeResponse.java
-│       │   │   └── TypiCodeMapper.java
-│       │   └── reqres/
-│       │       ├── ReqResPeopleClientImpl.java
-│       │       ├── ReqResResponse.java
-│       │       └── ReqResMapper.java
+│       │   │   ├── TypiCodePeopleClientResponse.java
+│       │   │   └── TypiCodePeopleClientMapper.java
+│       │   └── dummy/
+│       │       ├── DummyPeopleClientImpl.java
+│       │       ├── DummyPeopleClientResponse.java
+│       │       └── DummyPeopleClientMapper.java
 │       ├── repository/
 │       │   └── PeopleRepositoryImpl.java
 │       ├── exception/
@@ -386,9 +397,11 @@ people/
 │       │   ├── RequestContext.java
 │       │   └── GrpcLoggingInterceptor.java
 │       └── config/
-│           ├── UseCaseConfig.java
-│           ├── TypiCodeClientConfig.java
-│           └── ReqResClientConfig.java
+│           ├── usecase/
+│           │   └── UseCaseConfig.java
+│           └── client/
+│               ├── TypiCodePeopleClientConfig.java
+│               └── DummyPeopleClientConfig.java
 ├── src/main/proto/
 │   └── person.proto
 └── src/main/resources/
@@ -419,7 +432,7 @@ public class PeopleGrpcServiceImpl extends ReactorPeopleServiceGrpc.PeopleServic
 - Delegar para os Use Cases
 - Mapear entidades de domínio para protobuf messages
 
-#### 2. Use Cases (`usecase/`)
+#### 2. Use Cases (`application/usecase/`)
 
 **GetPeopleUseCaseImpl**
 ```java
@@ -439,71 +452,117 @@ public class ListPeopleUseCaseImpl {
 - Orquestrar a lógica de negócio
 - Interagir com o repositório para acessar dados
 
-#### 3. TypiCodePeopleClientImpl (`infrastructure/adapter/typicode/TypiCodePeopleClientImpl.java`)
+#### 3. PeopleRepositoryImpl (`infrastructure/repository/PeopleRepositoryImpl.java`)
+
+```java
+@Component
+public class PeopleRepositoryImpl implements PeopleRepository {
+
+    private final Map<DataSource, PeopleClient> clientStrategies;
+    private final DataSource activeDataSource;
+
+    public Mono<PeopleResponse> findById(Integer id)
+    public Flux<PeopleResponse> listAll()
+}
+```
+
+**Responsabilidades:**
+- Implementar o padrão **Strategy** para seleção dinâmica de fonte de dados
+- Gerenciar múltiplas implementações de PeopleClient (Typicode, Dummy)
+- Rotear requisições para a API externa configurada via `client.active-datasource`
+- Abstrair a complexidade de múltiplas APIs para os Use Cases
+
+**Configuração:**
+A fonte de dados ativa é configurada no `application.yml`:
+```yaml
+client:
+  active-datasource: DUMMY  # ou TYPICODE
+```
+
+#### 4. TypiCodePeopleClientImpl (`infrastructure/client/typicode/TypiCodePeopleClientImpl.java`)
 
 ```java
 @Component
 public class TypiCodePeopleClientImpl implements PeopleClient {
 
     @Autowired
+    @Qualifier("typiCodeWebClient")
     private WebClient typiCodeWebClient;
 
-    public Mono<People> findById(Integer id)
-    public Flux<People> listAll()
+    @Autowired
+    private TypiCodePeopleClientMapper mapper;
+
+    public Mono<PeopleResponse> findById(Integer id)
+    public Flux<PeopleResponse> listAll()
 }
 ```
 
 **Responsabilidades:**
-- Implementar a interface PeopleClient
-- Realizar chamadas HTTP para a API externa JSONPlaceholder
-- Mapear respostas JSON para entidades de domínio usando MapStruct
+- Implementar a interface PeopleClient para JSONPlaceholder API
+- Realizar chamadas HTTP reativas para `https://jsonplaceholder.typicode.com`
+- Mapear respostas JSON para DTOs usando MapStruct
+- Tratamento de erros e conversão para ExternalServiceException
 
-#### 5. TypiCodeMapper (`infrastructure/adapter/typicode/TypiCodeMapper.java`)
+**API Externa:** [JSONPlaceholder](https://jsonplaceholder.typicode.com/)
+
+#### 5. TypiCodePeopleClientMapper (`infrastructure/client/typicode/TypiCodePeopleClientMapper.java`)
 
 ```java
 @Mapper(componentModel = "spring")
-public interface TypiCodeMapper {
-    People toPeople(TypiCodeResponse response);
+public interface TypiCodePeopleClientMapper {
+    @Mapping(target = "id", source = "id")
+    @Mapping(target = "name", source = "name")
+    @Mapping(target = "email", source = "email")
+    PeopleResponse toPeopleResponse(TypiCodePeopleClientResponse response);
 }
 ```
 
 **Responsabilidades:**
-- Mapeamento type-safe de DTOs para entidades de domínio
+- Mapeamento direto de campos da API JSONPlaceholder
 - Geração de código em tempo de compilação via MapStruct
 
-#### 6. ReqResPeopleClientImpl (`infrastructure/adapter/reqres/ReqResPeopleClientImpl.java`)
+#### 6. DummyPeopleClientImpl (`infrastructure/client/dummy/DummyPeopleClientImpl.java`)
 
 ```java
 @Component
-public class ReqResPeopleClientImpl implements PeopleClient {
+public class DummyPeopleClientImpl implements PeopleClient {
 
     @Autowired
-    private WebClient reqresWebClient;
+    @Qualifier("dummyWebClient")
+    private WebClient dummyWebClient;
 
-    public Mono<People> findById(Integer id)
-    public Flux<People> listAll()
+    @Autowired
+    private DummyPeopleClientMapper mapper;
+
+    public Mono<PeopleResponse> findById(Integer id)
+    public Flux<PeopleResponse> listAll()
 }
 ```
 
 **Responsabilidades:**
-- Implementar a interface PeopleClient
-- Realizar chamadas HTTP para a API externa ReqRes
-- Mapear respostas JSON para entidades de domínio usando MapStruct
-- Combinar first_name e last_name em um único campo name
+- Implementar a interface PeopleClient para DummyJSON API
+- Realizar chamadas HTTP reativas para `https://dummyjson.com`
+- Mapear respostas JSON para DTOs usando MapStruct
+- Combinar firstName e lastName em um único campo name
+- Tratamento de erros e conversão para ExternalServiceException
 
-#### 7. ReqResMapper (`infrastructure/adapter/reqres/ReqResMapper.java`)
+**API Externa:** [DummyJSON](https://dummyjson.com/)
+
+#### 7. DummyPeopleClientMapper (`infrastructure/client/dummy/DummyPeopleClientMapper.java`)
 
 ```java
 @Mapper(componentModel = "spring")
-public interface ReqResMapper {
+public interface DummyPeopleClientMapper {
     @Mapping(target = "name", expression = "java(response.firstName() + \" \" + response.lastName())")
-    People toPeople(ReqResResponse response);
+    @Mapping(target = "email", source = "email")
+    @Mapping(target = "id", source = "id")
+    PeopleResponse toPeopleResponse(DummyPeopleClientResponse response);
 }
 ```
 
 **Responsabilidades:**
-- Mapeamento customizado de DTOs da API ReqRes para entidades de domínio
-- Combinar campos first_name e last_name em name
+- Mapeamento customizado da API DummyJSON
+- Combinar campos firstName e lastName em name
 - Geração de código em tempo de compilação via MapStruct
 
 ### Configuração (`application.yml`)
@@ -518,12 +577,91 @@ grpc:
     port: 9090
 
 client:
-  active-datasource: TYPICODE  # Options: TYPICODE, REQRES
+  active-datasource: TYPICODE  # Options: TYPICODE, DUMMY
   typicode:
     base-url: https://jsonplaceholder.typicode.com
-  reqres:
-    base-url: https://reqres.in/api
+  dummy:
+    base-url: https://dummyjson.com
 ```
+
+### APIs Externas Suportadas
+
+O People Service suporta múltiplas APIs externas através do padrão **Strategy**, permitindo trocar facilmente a fonte de dados via configuração.
+
+#### JSONPlaceholder (TYPICODE)
+
+**URL Base:** `https://jsonplaceholder.typicode.com`
+
+**Endpoints utilizados:**
+- `GET /users/{id}` - Buscar usuário por ID
+- `GET /users` - Listar todos os usuários
+
+**Estrutura de resposta:**
+```json
+{
+  "id": 1,
+  "name": "Leanne Graham",
+  "email": "Sincere@april.biz",
+  "username": "Bret",
+  "address": { ... },
+  "phone": "1-770-736-8031 x56442",
+  "website": "hildegard.org",
+  "company": { ... }
+}
+```
+
+**Características:**
+- API gratuita e pública para testes
+- 10 usuários disponíveis
+- Campos diretamente mapeados (id, name, email)
+
+#### DummyJSON (DUMMY)
+
+**URL Base:** `https://dummyjson.com`
+
+**Endpoints utilizados:**
+- `GET /users/{id}` - Buscar usuário por ID
+- `GET /users` - Listar todos os usuários
+
+**Estrutura de resposta:**
+```json
+{
+  "id": 1,
+  "firstName": "Emily",
+  "lastName": "Johnson",
+  "email": "emily.johnson@x.dummyjson.com",
+  "phone": "+81 965-431-3024",
+  "username": "emilys",
+  "birthDate": "1996-5-30",
+  "image": "https://dummyjson.com/icon/emilys/128",
+  ...
+}
+```
+
+**Características:**
+- API gratuita com dados realistas
+- Maior quantidade de usuários disponíveis
+- Requer mapeamento customizado (firstName + lastName → name)
+
+#### Seleção de Fonte de Dados
+
+A seleção é feita através da propriedade `client.active-datasource`:
+
+```yaml
+# Para usar JSONPlaceholder
+client:
+  active-datasource: TYPICODE
+
+# Para usar DummyJSON
+client:
+  active-datasource: DUMMY
+```
+
+O padrão Strategy permite adicionar novas APIs externas facilmente, bastando:
+1. Criar uma nova implementação de `PeopleClient`
+2. Adicionar um novo valor no enum `DataSource`
+3. Registrar o client no `UseCaseConfig`
+4. Configurar a URL base no `application.yml`
 
 ---
 
@@ -788,11 +926,16 @@ O People Service implementa logging estruturado usando **Logstash Logback Encode
 
 ## Referências
 
+### Frameworks e Tecnologias
 - [gRPC Documentation](https://grpc.io/docs/)
 - [Protocol Buffers](https://developers.google.com/protocol-buffers)
 - [Spring WebFlux](https://docs.spring.io/spring-framework/reference/web/webflux.html)
 - [Project Reactor](https://projectreactor.io/docs)
-- [JSONPlaceholder API](https://jsonplaceholder.typicode.com/)
+- [MapStruct](https://mapstruct.org/)
+
+### APIs Externas
+- [JSONPlaceholder API](https://jsonplaceholder.typicode.com/) - API de teste com dados fake
+- [DummyJSON API](https://dummyjson.com/) - API de teste com dados realistas
 
 <hr />
 
