@@ -50,6 +50,7 @@ O projeto **Bridge** é uma arquitetura de microserviços composta por dois serv
 
 ### Específicas do API Service
 - **gRPC Client Spring Boot Starter 2.15.0**
+- **MapStruct 1.5.5** (Mapeamento gRPC Proto para DTOs)
 
 ### Específicas do People Service
 - **gRPC Server Spring Boot Starter 2.15.0**
@@ -74,17 +75,18 @@ Ambos os serviços seguem os princípios de **Clean Architecture** com separaç�
                  │
 ┌────────────────▼────────────────────────────┐
 │           Application Layer                 │
-│              (Use Cases)                    │
+│         (Services + DTOs)                   │
 └────────────────┬────────────────────────────┘
                  │
 ┌────────────────▼────────────────────────────┐
 │            Domain Layer                     │
-│      (Entities / Client Interfaces)         │
+│   (Repository/Client Interfaces)            │
 └────────────────┬────────────────────────────┘
                  │
 ┌────────────────▼────────────────────────────┐
 │        Infrastructure Layer                 │
-│   (gRPC Clients/Servers / HTTP Clients)     │
+│   (Repositories / gRPC Clients/Servers)     │
+│         (HTTP Clients / Mappers)            │
 └─────────────────────────────────────────────┘
 ```
 
@@ -146,21 +148,25 @@ Cliente              API Service             People Service          External AP
   ├──────────────────────>│                        │                        │
   │                       │ PeopleController       │                        │
   │                       │        ↓               │                        │
-  │                       │ GetPeopleUseCase       │                        │
+  │                       │ PeopleService          │                        │
+  │                       │        ↓               │                        │
+  │                       │ PeopleRepository       │                        │
   │                       │        ↓               │                        │
   │                       │ PeopleGrpcClient       │                        │
+  │                       │   (MapStruct)          │                        │
   │                       │                        │                        │
   │                       │ gRPC: GetPeople(id=1)  │                        │
   │                       ├───────────────────────>│                        │
   │                       │                        │ PeopleGrpcService      │
   │                       │                        │        ↓               │
-  │                       │                        │ GetPeopleUseCase       │
+  │                       │                        │ PeopleService          │
   │                       │                        │        ↓               │
   │                       │                        │ PeopleRepository       │
   │                       │                        │   (Strategy Pattern)   │
   │                       │                        │        ↓               │
-  │                       │                        │ DummyPeopleClient ou   │
-  │                       │                        │ TypiCodePeopleClient   │
+  │                       │                        │ DummyClient ou         │
+  │                       │                        │ TypiCodeClient         │
+  │                       │                        │   (MapStruct)          │
   │                       │                        │                        │
   │                       │                        │ GET /users/1           │
   │                       │                        ├───────────────────────>│
@@ -174,9 +180,10 @@ Cliente              API Service             People Service          External AP
   │                       │ PeopleResponse (gRPC)  │                        │
   │                       │<───────────────────────┤                        │
   │                       │                        │                        │
-  │                       │ Map to Domain Entity   │                        │
+  │                       │ Map Proto to DTO       │                        │
+  │                       │   (MapStruct)          │                        │
   │                       │        ↓               │                        │
-  │                       │ Map to DTO             │                        │
+  │                       │ PeopleResponse (DTO)   │                        │
   │                       │                        │                        │
   │ JSON Response         │                        │                        │
   │<──────────────────────┤                        │                        │
@@ -191,21 +198,25 @@ Cliente              API Service             People Service          External AP
   ├──────────────────────>│                        │                        │
   │                       │ PeopleController       │                        │
   │                       │        ↓               │                        │
-  │                       │ ListPeopleUseCase      │                        │
+  │                       │ PeopleService          │                        │
+  │                       │        ↓               │                        │
+  │                       │ PeopleRepository       │                        │
   │                       │        ↓               │                        │
   │                       │ PeopleGrpcClient       │                        │
+  │                       │   (MapStruct)          │                        │
   │                       │                        │                        │
   │                       │ gRPC: ListPeople()     │                        │
   │                       ├───────────────────────>│                        │
   │                       │                        │ PeopleGrpcService      │
   │                       │                        │        ↓               │
-  │                       │                        │ ListPeopleUseCase      │
+  │                       │                        │ PeopleService          │
   │                       │                        │        ↓               │
   │                       │                        │ PeopleRepository       │
   │                       │                        │   (Strategy Pattern)   │
   │                       │                        │        ↓               │
-  │                       │                        │ DummyPeopleClient ou   │
-  │                       │                        │ TypiCodePeopleClient   │
+  │                       │                        │ DummyClient ou         │
+  │                       │                        │ TypiCodeClient         │
+  │                       │                        │   (MapStruct)          │
   │                       │                        │                        │
   │                       │                        │ GET /users             │
   │                       │                        ├───────────────────────>│
@@ -214,14 +225,14 @@ Cliente              API Service             People Service          External AP
   │                       │                        │<───────────────────────┤
   │                       │                        │                        │
   │                       │                        │ Map to Flux<DTO>       │
+  │                       │                        │   (MapStruct)          │
   │                       │                        │                        │
   │                       │ ListPeopleResponse     │                        │
   │                       │ (repeated gRPC)        │                        │
   │                       │<───────────────────────┤                        │
   │                       │                        │                        │
-  │                       │ Map to Flux<Entity>    │                        │
-  │                       │        ↓               │                        │
-  │                       │ Map to Flux<DTO>       │                        │
+  │                       │ Map Proto to Flux<DTO> │                        │
+  │                       │   (MapStruct)          │                        │
   │                       │                        │                        │
   │ JSON Array Response   │                        │                        │
   │<──────────────────────┤                        │                        │
@@ -237,22 +248,27 @@ Cliente              API Service             People Service          External AP
 api/
 ├── src/main/java/org/api/
 │   ├── presentation/
-│   │   ├── controller/
-│   │   │   └── PeopleController.java
-│   │   └── dto/
-│   │       └── PeopleResponse.java
+│   │   └── controller/
+│   │       └── PeopleControllerImpl.java
 │   ├── application/
-│   │   └── usecase/
-│   │       ├── GetPeopleUseCase.java
-│   │       └── ListPeopleUseCase.java
+│   │   ├── dto/
+│   │   │   └── PeopleResponse.java
+│   │   └── service/
+│   │       ├── PeopleService.java (Interface)
+│   │       └── PeopleServiceImpl.java
 │   ├── domain/
 │   │   ├── client/
-│   │   │   └── PeopleClient.java (Interface)
-│   │   └── entity/
-│   │       └── People.java
+│   │   │   └── PeopleServiceClient.java (Interface)
+│   │   └── repository/
+│   │       └── PeopleRepository.java (Interface)
 │   └── infrastructure/
-│       └── grpc/
-│           └── PeopleGrpcClient.java
+│       ├── client/
+│       │   ├── PeopleServiceGrpcClientImpl.java
+│       │   └── PeopleGrpcMapper.java (MapStruct)
+│       ├── repository/
+│       │   └── PeopleRepositoryImpl.java
+│       └── config/
+│           └── RepositoryConfig.java
 ├── src/main/proto/
 │   └── person.proto
 └── src/main/resources/
@@ -261,12 +277,15 @@ api/
 
 ### Componentes Principais
 
-#### 1. PeopleController (`presentation/controller/PeopleController.java`)
+#### 1. PeopleControllerImpl (`presentation/controller/PeopleControllerImpl.java`)
 
 ```java
 @RestController
 @RequestMapping("/api/peoples")
-public class PeopleController {
+@RequiredArgsConstructor  // Lombok
+public class PeopleControllerImpl {
+
+    private final PeopleService peopleService;  // Interface!
 
     @GetMapping("/{id}")
     public Mono<PeopleResponse> getPeopleById(@PathVariable int id)
@@ -279,48 +298,126 @@ public class PeopleController {
 **Responsabilidades:**
 - Expor endpoints REST HTTP
 - Receber requisições do cliente
-- Delegar para os Use Cases
-- Mapear entidades de domínio para DTOs de resposta
+- Delegar para o serviço de aplicação
+- Retornar DTOs de resposta
+- **Inversão de Dependência:** Injeta interface `PeopleService`, não implementação
 
-#### 2. Use Cases (`application/usecase/`)
+#### 2. PeopleService (`application/service/`)
 
-**GetPeopleUseCase**
+**PeopleService (Interface)**
 ```java
-public class GetPeopleUseCase {
-    public Mono<People> execute(Integer peopleId)
+public interface PeopleService {
+    Mono<PeopleResponse> getById(int id);
+    Flux<PeopleResponse> listAll();
 }
 ```
 
-**ListPeopleUseCase**
+**PeopleServiceImpl**
 ```java
-public class ListPeopleUseCase {
-    public Flux<People> execute()
+@Service
+@RequiredArgsConstructor  // Lombok
+public class PeopleServiceImpl implements PeopleService {
+
+    private final PeopleRepository peopleRepository;
+
+    @Override
+    public Mono<PeopleResponse> getById(int id) {
+        return peopleRepository.findById(id);
+    }
+
+    @Override
+    public Flux<PeopleResponse> listAll() {
+        return peopleRepository.findAll();
+    }
 }
 ```
 
 **Responsabilidades:**
 - Orquestrar a lógica de negócio
-- Chamar os clientes de integração (gRPC)
+- Delegar para o repositório
+- Camada de abstração entre controller e infraestrutura
 
-#### 3. PeopleGrpcClient (`infrastructure/grpc/PeopleGrpcClient.java`)
+#### 3. PeopleRepositoryImpl (`infrastructure/repository/PeopleRepositoryImpl.java`)
 
 ```java
-@Component
-public class PeopleGrpcClient implements PeopleClient {
+@RequiredArgsConstructor  // Lombok
+public class PeopleRepositoryImpl implements PeopleRepository {
 
-    @GrpcClient("people-service")
-    private PeopleServiceBlockingStub stub;
+    private final PeopleServiceClient peopleClient;
 
-    public Mono<People> getPeopleById(int id)
-    public Flux<People> listPeople()
+    @Override
+    public Mono<PeopleResponse> findById(int id) {
+        return peopleClient.getPeopleById(id);
+    }
+
+    @Override
+    public Flux<PeopleResponse> findAll() {
+        return peopleClient.listPeople();
+    }
 }
 ```
 
 **Responsabilidades:**
-- Implementar a interface PeopleClient
+- Implementar a interface `PeopleRepository`
+- Delegar para o cliente gRPC
+- Abstrair a comunicação gRPC
+
+#### 4. PeopleServiceGrpcClientImpl (`infrastructure/client/PeopleServiceGrpcClientImpl.java`)
+
+```java
+@Component
+@RequiredArgsConstructor  // Lombok
+public class PeopleServiceGrpcClientImpl implements PeopleServiceClient {
+
+    @GrpcClient("people-service")
+    private PeopleServiceGrpc.PeopleServiceBlockingStub peopleServiceStub;
+
+    private final PeopleGrpcMapper peopleGrpcMapper;  // MapStruct!
+
+    @Override
+    public Mono<PeopleResponse> getPeopleById(int id) {
+        return Mono.fromCallable(() -> {
+            ServiceProto.PeopleRequestGrpc request =
+                ServiceProto.PeopleRequestGrpc.newBuilder()
+                    .setId(id)
+                    .build();
+
+            ServiceProto.PeopleResponseGrpc response =
+                peopleServiceStub.getPeople(request);
+
+            return peopleGrpcMapper.toPeopleResponse(response);  // MapStruct
+        })
+        .subscribeOn(Schedulers.boundedElastic());
+    }
+}
+```
+
+**Responsabilidades:**
+- Implementar a interface `PeopleServiceClient`
 - Realizar chamadas gRPC para o People Service
 - Converter chamadas bloqueantes em streams reativos (Mono/Flux)
-- Mapear protobuf messages para entidades de domínio
+- Mapear protobuf messages para DTOs usando **MapStruct**
+
+#### 5. PeopleGrpcMapper (`infrastructure/client/PeopleGrpcMapper.java`)
+
+```java
+@Mapper(
+    componentModel = "spring",
+    implementationName = "PeopleGrpcMapperImpl"
+)
+public interface PeopleGrpcMapper {
+
+    @Mapping(target = "id", source = "id")
+    @Mapping(target = "name", source = "name")
+    @Mapping(target = "email", source = "email")
+    PeopleResponse toPeopleResponse(ServiceProto.PeopleResponseGrpc response);
+}
+```
+
+**Responsabilidades:**
+- Mapeamento **type-safe** de gRPC Proto para DTO
+- Geração de código em tempo de compilação via MapStruct
+- Integração com Spring via `componentModel = "spring"`
 
 ### Configuração (`application.yml`)
 
@@ -369,24 +466,25 @@ people/
 │   ├── application/
 │   │   ├── dto/
 │   │   │   └── PeopleResponse.java
-│   │   └── usecase/
-│   │       ├── GetPeopleUseCaseImpl.java
-│   │       └── ListPeopleUseCaseImpl.java
+│   │   └── service/
+│   │       ├── PeopleService.java (Interface)
+│   │       └── PeopleServiceImpl.java
 │   └── infrastructure/
 │       ├── entrypoint/
 │       │   └── grpc/
-│       │       └── PeopleGrpcServiceImpl.java
+│       │       └── PeopleServiceGrpcImpl.java
 │       ├── client/
 │       │   ├── typicode/
-│       │   │   ├── TypiCodePeopleClientImpl.java
-│       │   │   ├── TypiCodePeopleClientResponse.java
-│       │   │   └── TypiCodePeopleClientMapper.java
+│       │   │   ├── TypiCodeClientImpl.java
+│       │   │   ├── TypiCodeResponse.java
+│       │   │   └── TypiCodeMapper.java (MapStruct)
 │       │   └── dummy/
-│       │       ├── DummyPeopleClientImpl.java
-│       │       ├── DummyPeopleClientResponse.java
-│       │       └── DummyPeopleClientMapper.java
+│       │       ├── DummyClientImpl.java
+│       │       ├── DummyResponse.java
+│       │       ├── DummyListResponse.java
+│       │       └── DummyMapper.java (MapStruct)
 │       ├── repository/
-│       │   └── PeopleRepositoryImpl.java
+│       │   └── PeopleRepositoryImpl.java (Strategy Pattern)
 │       ├── exception/
 │       │   ├── GlobalGrpcExceptionHandler.java
 │       │   ├── ExternalServiceException.java
@@ -397,11 +495,10 @@ people/
 │       │   ├── RequestContext.java
 │       │   └── GrpcLoggingInterceptor.java
 │       └── config/
-│           ├── usecase/
-│           │   └── UseCaseConfig.java
+│           ├── RepositoryConfig.java
 │           └── client/
-│               ├── TypiCodePeopleClientConfig.java
-│               └── DummyPeopleClientConfig.java
+│               ├── TypiCodeClientConfig.java
+│               └── DummyClientConfig.java
 ├── src/main/proto/
 │   └── person.proto
 └── src/main/resources/
@@ -410,159 +507,270 @@ people/
 
 ### Componentes Principais
 
-#### 1. PeopleGrpcServiceImpl (`infrastructure/entrypoint/grpc/PeopleGrpcServiceImpl.java`)
+#### 1. PeopleServiceGrpcImpl (`infrastructure/entrypoint/grpc/PeopleServiceGrpcImpl.java`)
 
 ```java
 @GrpcService
-public class PeopleGrpcServiceImpl extends ReactorPeopleServiceGrpc.PeopleServiceImplBase {
+@RequiredArgsConstructor  // Lombok
+public class PeopleServiceGrpcImpl extends ReactorPeopleServiceGrpc.PeopleServiceImplBase {
+
+    private final PeopleService peopleService;  // Interface!
 
     @Override
-    public void getPeople(PeopleRequest request,
-                          StreamObserver<PeopleResponse> responseObserver)
+    public Mono<PeopleResponseGrpc> getPeople(Mono<PeopleRequestGrpc> request) {
+        return request
+            .flatMap(req -> peopleService.getById(req.getId()))
+            .map(people -> PeopleResponseGrpc.newBuilder()
+                .setId(people.getId())
+                .setName(people.getName())
+                .setEmail(people.getEmail())
+                .build());
+    }
 
     @Override
-    public void listPeople(ListPeopleRequest request,
-                           StreamObserver<ListPeopleResponse> responseObserver)
+    public Mono<ListPeopleResponseGrpc> listPeople(Mono<ListPeopleRequestGrpc> request) {
+        return request
+            .flatMapMany(req -> peopleService.listAll())
+            .map(people -> PeopleResponseGrpc.newBuilder()
+                .setId(people.getId())
+                .setName(people.getName())
+                .setEmail(people.getEmail())
+                .build())
+            .collectList()
+            .map(peopleList -> ListPeopleResponseGrpc.newBuilder()
+                .addAllPeople(peopleList)
+                .build());
+    }
 }
 ```
 
 **Responsabilidades:**
-- Expor serviços gRPC
+- Expor serviços gRPC reativos
 - Receber requisições gRPC do API Service
-- Delegar para os Use Cases
-- Mapear entidades de domínio para protobuf messages
+- Delegar para o serviço de aplicação
+- Mapear DTOs para protobuf messages
+- **Inversão de Dependência:** Injeta interface `PeopleService`, não implementação
 
-#### 2. Use Cases (`application/usecase/`)
+#### 2. PeopleService (`application/service/`)
 
-**GetPeopleUseCaseImpl**
+**PeopleService (Interface)**
 ```java
-public class GetPeopleUseCaseImpl {
-    public Mono<People> execute(Integer peopleId)
+public interface PeopleService {
+    Mono<PeopleResponse> getById(Integer id);
+    Flux<PeopleResponse> listAll();
 }
 ```
 
-**ListPeopleUseCaseImpl**
+**PeopleServiceImpl**
 ```java
-public class ListPeopleUseCaseImpl {
-    public Flux<People> execute()
+@Service
+@RequiredArgsConstructor  // Lombok
+public class PeopleServiceImpl implements PeopleService {
+
+    private final PeopleRepository peopleRepository;
+
+    @Override
+    public Mono<PeopleResponse> getById(Integer id) {
+        return peopleRepository.findById(id);
+    }
+
+    @Override
+    public Flux<PeopleResponse> listAll() {
+        return peopleRepository.findAll();
+    }
 }
 ```
 
 **Responsabilidades:**
 - Orquestrar a lógica de negócio
-- Interagir com o repositório para acessar dados
+- Delegar para o repositório
+- Camada de abstração entre gRPC service e infraestrutura
 
 #### 3. PeopleRepositoryImpl (`infrastructure/repository/PeopleRepositoryImpl.java`)
 
 ```java
-@Component
+@RequiredArgsConstructor  // Lombok
 public class PeopleRepositoryImpl implements PeopleRepository {
 
     private final Map<DataSource, PeopleClient> clientStrategies;
     private final DataSource activeDataSource;
 
-    public Mono<PeopleResponse> findById(Integer id)
-    public Flux<PeopleResponse> listAll()
+    @Override
+    public Mono<PeopleResponse> findById(Integer id) {
+        return getActiveClient().getPeopleById(id);
+    }
+
+    @Override
+    public Flux<PeopleResponse> findAll() {
+        return getActiveClient().listPeople();
+    }
+
+    private PeopleClient getActiveClient() {
+        return clientStrategies.get(activeDataSource);
+    }
 }
 ```
 
 **Responsabilidades:**
 - Implementar o padrão **Strategy** para seleção dinâmica de fonte de dados
-- Gerenciar múltiplas implementações de PeopleClient (Typicode, Dummy)
+- Gerenciar múltiplas implementações de PeopleClient (TypiCode, Dummy)
 - Rotear requisições para a API externa configurada via `client.active-datasource`
-- Abstrair a complexidade de múltiplas APIs para os Use Cases
+- Abstrair a complexidade de múltiplas APIs para o serviço
 
-**Configuração:**
+**Configuração (RepositoryConfig.java):**
+```java
+@Configuration
+public class RepositoryConfig {
+
+    @Bean
+    public PeopleRepository peopleRepository(
+            TypiCodeClientImpl typiCodeClient,
+            DummyClientImpl dummyClient,
+            @Value("${client.active-datasource:TYPICODE}") String activeDataSourceStr) {
+
+        Map<DataSource, PeopleClient> clientStrategies = new HashMap<>();
+        clientStrategies.put(DataSource.TYPICODE, typiCodeClient);
+        clientStrategies.put(DataSource.DUMMY, dummyClient);
+
+        DataSource activeDataSource = DataSource.valueOf(activeDataSourceStr.toUpperCase());
+
+        return new PeopleRepositoryImpl(clientStrategies, activeDataSource);
+    }
+}
+```
+
 A fonte de dados ativa é configurada no `application.yml`:
 ```yaml
 client:
   active-datasource: DUMMY  # ou TYPICODE
 ```
 
-#### 4. TypiCodePeopleClientImpl (`infrastructure/client/typicode/TypiCodePeopleClientImpl.java`)
+#### 4. TypiCodeClientImpl (`infrastructure/client/typicode/TypiCodeClientImpl.java`)
 
 ```java
 @Component
-public class TypiCodePeopleClientImpl implements PeopleClient {
+@RequiredArgsConstructor  // Lombok
+public class TypiCodeClientImpl implements PeopleClient {
 
-    @Autowired
     @Qualifier("typiCodeWebClient")
-    private WebClient typiCodeWebClient;
+    private final WebClient typiCodeWebClient;
 
-    @Autowired
-    private TypiCodePeopleClientMapper mapper;
+    private final TypiCodeMapper mapper;  // MapStruct
 
-    public Mono<PeopleResponse> findById(Integer id)
-    public Flux<PeopleResponse> listAll()
+    @Override
+    public Mono<PeopleResponse> getPeopleById(Integer id) {
+        return typiCodeWebClient
+            .get()
+            .uri("/users/{id}", id)
+            .retrieve()
+            .bodyToMono(TypiCodeResponse.class)
+            .map(mapper::toPeopleResponse);  // MapStruct
+    }
+
+    @Override
+    public Flux<PeopleResponse> listPeople() {
+        return typiCodeWebClient
+            .get()
+            .uri("/users")
+            .retrieve()
+            .bodyToFlux(TypiCodeResponse.class)
+            .map(mapper::toPeopleResponse);  // MapStruct
+    }
 }
 ```
 
 **Responsabilidades:**
 - Implementar a interface PeopleClient para JSONPlaceholder API
 - Realizar chamadas HTTP reativas para `https://jsonplaceholder.typicode.com`
-- Mapear respostas JSON para DTOs usando MapStruct
-- Tratamento de erros e conversão para ExternalServiceException
+- Mapear respostas JSON para DTOs usando **MapStruct**
+- Tratamento de erros reativo
 
 **API Externa:** [JSONPlaceholder](https://jsonplaceholder.typicode.com/)
 
-#### 5. TypiCodePeopleClientMapper (`infrastructure/client/typicode/TypiCodePeopleClientMapper.java`)
+#### 5. TypiCodeMapper (`infrastructure/client/typicode/TypiCodeMapper.java`)
 
 ```java
-@Mapper(componentModel = "spring")
-public interface TypiCodePeopleClientMapper {
+@Mapper(
+    componentModel = "spring",
+    implementationName = "TypiCodeMapperImpl"
+)
+public interface TypiCodeMapper {
+
     @Mapping(target = "id", source = "id")
     @Mapping(target = "name", source = "name")
     @Mapping(target = "email", source = "email")
-    PeopleResponse toPeopleResponse(TypiCodePeopleClientResponse response);
+    PeopleResponse toPeopleResponse(TypiCodeResponse response);
 }
 ```
 
 **Responsabilidades:**
-- Mapeamento direto de campos da API JSONPlaceholder
+- Mapeamento **type-safe** de campos da API JSONPlaceholder
 - Geração de código em tempo de compilação via MapStruct
 
-#### 6. DummyPeopleClientImpl (`infrastructure/client/dummy/DummyPeopleClientImpl.java`)
+#### 6. DummyClientImpl (`infrastructure/client/dummy/DummyClientImpl.java`)
 
 ```java
 @Component
-public class DummyPeopleClientImpl implements PeopleClient {
+@RequiredArgsConstructor  // Lombok
+public class DummyClientImpl implements PeopleClient {
 
-    @Autowired
     @Qualifier("dummyWebClient")
-    private WebClient dummyWebClient;
+    private final WebClient dummyWebClient;
 
-    @Autowired
-    private DummyPeopleClientMapper mapper;
+    private final DummyMapper mapper;  // MapStruct
 
-    public Mono<PeopleResponse> findById(Integer id)
-    public Flux<PeopleResponse> listAll()
+    @Override
+    public Mono<PeopleResponse> getPeopleById(Integer id) {
+        return dummyWebClient
+            .get()
+            .uri("/users/{id}", id)
+            .retrieve()
+            .bodyToMono(DummyResponse.class)
+            .map(mapper::toPeopleResponse);  // MapStruct
+    }
+
+    @Override
+    public Flux<PeopleResponse> listPeople() {
+        return dummyWebClient
+            .get()
+            .uri("/users")
+            .retrieve()
+            .bodyToMono(DummyListResponse.class)
+            .flatMapMany(response -> Flux.fromIterable(response.users()))
+            .map(mapper::toPeopleResponse);  // MapStruct
+    }
 }
 ```
 
 **Responsabilidades:**
 - Implementar a interface PeopleClient para DummyJSON API
 - Realizar chamadas HTTP reativas para `https://dummyjson.com`
-- Mapear respostas JSON para DTOs usando MapStruct
-- Combinar firstName e lastName em um único campo name
-- Tratamento de erros e conversão para ExternalServiceException
+- Mapear respostas JSON para DTOs usando **MapStruct**
+- Combinar firstName e lastName em um único campo name via MapStruct
+- Tratamento de erros reativo
 
 **API Externa:** [DummyJSON](https://dummyjson.com/)
 
-#### 7. DummyPeopleClientMapper (`infrastructure/client/dummy/DummyPeopleClientMapper.java`)
+#### 7. DummyMapper (`infrastructure/client/dummy/DummyMapper.java`)
 
 ```java
-@Mapper(componentModel = "spring")
-public interface DummyPeopleClientMapper {
-    @Mapping(target = "name", expression = "java(response.firstName() + \" \" + response.lastName())")
+@Mapper(
+    componentModel = "spring",
+    implementationName = "DummyMapperImpl"
+)
+public interface DummyMapper {
+
+    @Mapping(target = "name",
+        expression = "java(response.firstName() + \" \" + response.lastName())")
     @Mapping(target = "email", source = "email")
     @Mapping(target = "id", source = "id")
-    PeopleResponse toPeopleResponse(DummyPeopleClientResponse response);
+    PeopleResponse toPeopleResponse(DummyResponse response);
 }
 ```
 
 **Responsabilidades:**
-- Mapeamento customizado da API DummyJSON
-- Combinar campos firstName e lastName em name
+- Mapeamento **customizado** da API DummyJSON
+- Combinar campos `firstName` e `lastName` em `name` via expressão Java
 - Geração de código em tempo de compilação via MapStruct
 
 ### Configuração (`application.yml`)
@@ -659,9 +867,10 @@ client:
 
 O padrão Strategy permite adicionar novas APIs externas facilmente, bastando:
 1. Criar uma nova implementação de `PeopleClient`
-2. Adicionar um novo valor no enum `DataSource`
-3. Registrar o client no `UseCaseConfig`
-4. Configurar a URL base no `application.yml`
+2. Criar um `Mapper` MapStruct para conversão de respostas
+3. Adicionar um novo valor no enum `DataSource`
+4. Registrar o client no `RepositoryConfig.java`
+5. Configurar a URL base no `application.yml`
 
 ---
 
